@@ -142,6 +142,7 @@ class Bomb(pg.sprite.Sprite):
         self.rect.centerx = emy.rect.centerx
         self.rect.centery = emy.rect.centery+emy.rect.height//2
         self.speed = 6
+        self.state = "aaa"
 
     def update(self):
         """
@@ -248,7 +249,7 @@ class Score:
     def __init__(self):
         self.font = pg.font.Font(None, 50)
         self.color = (0, 0, 255)
-        self.value = 0
+        self.value = 1000
         self.image = self.font.render(f"Score: {self.value}", 0, self.color)
         self.rect = self.image.get_rect()
         self.rect.center = 100, HEIGHT-50
@@ -302,6 +303,40 @@ class Shield(pg.sprite.Sprite):
             self.kill()  # 寿命が尽きたら消滅    
 
 
+class EMP(pg.sprite.Sprite):
+    """
+    電磁パルス（EMP）に関するクラス
+    """
+    def __init__(self, bird: Bird, bombs: pg.sprite.Group, emys: pg.sprite.Group):
+        """
+        EMPを発動し、敵や爆弾を無効化する
+        引数: bird: こうかとんインスタンス
+        bombs: 爆弾のグループ
+        emys: 敵機のグループ
+        """
+        super().__init__()
+        self.image = pg.Surface((WIDTH, HEIGHT), pg.SRCALPHA)
+        pg.draw.rect(self.image, (255, 255, 0, 128), (0, 0, WIDTH, HEIGHT))  # 半透明の黄色
+        self.rect = self.image.get_rect()
+        self.life = 10  # 時間表示
+        
+        for emy in emys:  # 敵を無効化し、爆弾を遅くする
+            emy.interval = float("inf")  # 爆弾投下を無効化する
+            emy.image = pg.transform.laplacian(emy.image)  # 敵の変更（見た目）
+            emy.image.set_colorkey((0, 0, 0))
+        for bomb in bombs:
+            bomb.speed /= 2  # 爆弾の速度を半減する
+            bomb.state = "inactive" 
+
+    def update(self):
+        """
+        表示時間を管理する
+        """
+        self.life -= 1
+        if self.life < 0:
+            self.kill()
+
+
 def main():
     pg.display.set_caption("真！こうかとん無双")
     screen = pg.display.set_mode((WIDTH, HEIGHT))
@@ -314,8 +349,12 @@ def main():
     exps = pg.sprite.Group()
     emys = pg.sprite.Group()
     shields = pg.sprite.Group()  # 防御壁グループを追加
+    emps = pg.sprite.Group()  # EMPのグループ
 
     tmr = 0
+    emps.update()# EMPの更新と描画を追加
+    emps.draw(screen)
+      
     clock = pg.time.Clock()
     gravity_group = pg.sprite.Group()  # Gravityインスタンスを管理するグループ
 
@@ -334,6 +373,9 @@ def main():
                     # リターンキー押下で重力場を発動
                     gravity_group.add(Gravity(400))
                     score.value -= 200  # スコアを200減らす
+            if event.type == pg.KEYDOWN and event.key == pg.K_e and score.value >= 20:
+                score.value -= 20  # スコアを消費
+                emps.add(EMP(bird, bombs, emys))  # EMPを発動 
         screen.blit(bg_img, [0, 0])
 
         if tmr%200 == 0:  # 200フレームに1回，敵機を出現させる
@@ -352,7 +394,7 @@ def main():
         for bomb in pg.sprite.groupcollide(bombs, beams, True, True).keys():
             exps.add(Explosion(bomb, 50))  # 爆発エフェクト
             score.value += 1  # 1点アップ
-            
+
         for bomb in pg.sprite.groupcollide(bombs, shields, True, False).keys():
             exps.add(Explosion(bomb, 50))  # 爆発エフェクト
             score.value += 1  # 1点アップ
@@ -364,19 +406,15 @@ def main():
             for emy in pg.sprite.spritecollide(gravity, emys, True):
                 exps.add(Explosion(emy, 100))  # 爆発エフェクト
 
-        # 重力場と爆弾、敵機の衝突判定
-        for gravity in gravity_group:
-            for bomb in pg.sprite.spritecollide(gravity, bombs, True):
-                exps.add(Explosion(bomb, 50))  # 爆発エフェクト
-            for emy in pg.sprite.spritecollide(gravity, emys, True):
-                exps.add(Explosion(emy, 100))  # 爆発エフェクト
-
-        if len(pg.sprite.spritecollide(bird, bombs, True)) != 0:
-            bird.change_img(8, screen) # こうかとん悲しみエフェクト
-            score.update(screen)
-            pg.display.update()
-            time.sleep(2)
-            return
+        for bomb in pg.sprite.spritecollide(bird, bombs, True):
+            if bomb.state == "inactive":
+                continue
+            else:
+                bird.change_img(8, screen) # こうかとん悲しみエフェクト
+                score.update(screen)
+                pg.display.update()
+                time.sleep(2)
+                return
 
         gravity_group.update()
         gravity_group.draw(screen)
